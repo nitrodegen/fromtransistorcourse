@@ -36,10 +36,11 @@ class ARM7CPU{
         string filename;
         vector<pair<string,string> >opcodes={
             //x in push is representing the number of the register, will be done with .replace in strings! 
-            {"movreg","e1a"},{"subnum","e24"},{"subreg","e04"},{"push","e52"},{"addnum","e28"},{"addreg","e08"},{"movnum","e3a"}
+            {"movreg","e1a"},{"subnum","e24"},{"subreg","e04"},{"push","e52"},{"addnum","e28"},{"addreg","e08"},{"movnum","e3a"},{"svc","ef0"},{"ldr","e59"}
+        
         };
 
-        bool debug=true;
+        bool debug=false;
         vector<string>executePhase;
         void debugstat()
         {
@@ -49,7 +50,7 @@ class ARM7CPU{
                 cout<<"R"<<i<<"="<<registers[i]<<",";    
             }
             else{
-                    cout<<"| pc->"<<registers[14]<<" | sp-> "<<registers[15]<<endl;
+                    cout<<"| pc->"<<registers[14]<<" | sp-> "<<registers[15]<< "APSR:"<<registers[16]<<endl;
             }
             }
             if(STACK.size() >0){
@@ -114,7 +115,28 @@ class ARM7CPU{
                 string label = op.first;
         
                 if(bytecode == opcode){
-                    
+                    if(label == "svc"){
+                       
+                        string data = th.substr(th.find("ef")+2);
+                        //cout<<data<<endl;
+                        int vl;
+                        ss.clear();
+                        ss<<data;
+                        ss>>hex>>vl;
+                        data = to_string(vl);
+                        executePhase.push_back("movn:"+data+"to16");
+
+                    }
+                    if(label == "ldr" || bytecode == "e59"){
+                        string data = th.substr(th.find("e59f")+4);
+                        string reg;
+                        reg+=data[0];
+                        data = data.substr(data.find(reg)+1);
+                        ifstream str(data);
+                        string text;
+                        str>>text;
+                        executePhase.push_back("movw:"+text+"to"+reg);
+                    }
                     if(label == "movreg"){
                         // e1a 02 0 03
                         // op  to 0 from
@@ -141,7 +163,6 @@ class ARM7CPU{
                         ss>>hex>>num;
                         ss.clear();
                         cout.clear();
-
                         string nn = to_string(num);
                         executePhase.push_back("movn:"+nn+"to"+to);
                     }
@@ -208,27 +229,49 @@ class ARM7CPU{
                 }
             }
         }
+        vector<string> executes(executePhase.rbegin(),executePhase.rend());
         //execute phase -> executing everything basically
-        for(int i =0 ;i<executePhase.size();i++){
-            if(debug==true){
-                debugstat();
+        for(int i =0 ;i<executes.size();i++){
+            string instruction = executes[i].substr(0,executes[i].find(":"));
+            if(registers[16] ==0 && registers[7] == 4){
+                string wrd;
+                string regval = to_string(registers[0]);
+                for(int j =0;j<STACK.size();j++){
+                    string reg = STACK[j].substr(STACK[j].find(":")+1);
+                    if(regval == reg){
+                        wrd =  STACK[j].substr(0,STACK[j].find(":"));
+                        break;
+                    }
+                }
+                if(debug == true){
+                    printf("\n********** STDOUT ********");
+                    for(int i =0;i<2;i++){
+                        printf("\n                                           \n");
+                    }
+                }
+                cout<<wrd<<endl;
+                
+                if(debug){
+                    for(int i =0;i<2;i++){
+                        printf("\n                                           \n");
+                    }
+                    printf("\n********** END OF STDOUT ********");
+                }
             }
-        
-            string instruction = executePhase[i].substr(0,executePhase[i].find(":"));
             if(instruction == "movn"){
-                string cmd = executePhase[i].substr(executePhase[i].find(":")+1);
+                string cmd = executes[i].substr(executes[i].find(":")+1);
                 string num = cmd.substr(0,cmd.find("to"));
                 int reg = stoi(cmd.substr(cmd.find("to")+2));
                 registers[reg]=stoi(num);
             }
             if(instruction == "movr"){
-                string cmd = executePhase[i].substr(executePhase[i].find(":")+1);
+                string cmd = executes[i].substr(executes[i].find(":")+1);
                 int from = stoi(cmd.substr(0,cmd.find("to")));
                 int to = stoi(cmd.substr(cmd.find("to")+2));
                 registers[to]=registers[from];
             }
             if(instruction == "push"){
-                string regtopush= executePhase[i].substr(executePhase[i].find(":")+1);
+                string regtopush= executes[i].substr(executes[i].find(":")+1);
                 char *b = (char*)malloc(sizeof(unsigned long int)*2);
                 sprintf(b,"%p",&registers[stoi(regtopush)]);
                 string t = b;
@@ -238,7 +281,7 @@ class ARM7CPU{
                 free(b);
             }
             if(instruction=="subn"){
-                string cmd = executePhase[i].substr(executePhase[i].find(":")+1);
+                string cmd = executes[i].substr(executes[i].find(":")+1);
                 int num = stoi(cmd.substr(0,cmd.find("from")));
                 int reg = stoi(cmd.substr(cmd.find("from")+4));
             
@@ -248,7 +291,7 @@ class ARM7CPU{
                 //AN UNSIGNED CANNOT NEVER EVER BE NEGATIVE!!
             }
             if(instruction=="subr"){
-                string cmd = executePhase[i].substr(executePhase[i].find(":")+1);
+                string cmd = executes[i].substr(executes[i].find(":")+1);
                 int num = stoi(cmd.substr(0,cmd.find("from")));
                 int reg = stoi(cmd.substr(cmd.find("from")+4));
             
@@ -257,20 +300,38 @@ class ARM7CPU{
             
                 //AN UNSIGNED CANNOT NEVER EVER BE NEGATIVE!!
             }
+            if(instruction == "movw"){
+                string cmd = executes[i].substr(executes[i].find(":")+1);
+                string reg = cmd.substr(cmd.find("to")+2);
+                string wrd = cmd.substr(0,cmd.find("to"));
+                for(int j =0;j<STACK.size();j++){
+                    string addr =STACK[j];
+                    string val = addr.substr(0,addr.find(":"));
+                    string streg = addr.substr(addr.find(":")+1);
+                    if(reg == streg){
+                        STACK.erase(STACK.begin()+j);
+                        STACK.push_back(wrd+":"+streg);
+                    }
+                }
+            }
             if(instruction=="addn"){
-                string cmd = executePhase[i].substr(executePhase[i].find(":")+1);
+                string cmd = executes[i].substr(executes[i].find(":")+1);
                 int num = stoi(cmd.substr(0,cmd.find("from")));
                 int reg = stoi(cmd.substr(cmd.find("from")+4));
                 registers[reg]+=num;
                 //AN UNSIGNED CANNOT NEVER EVER BE NEGATIVE!!
             }
             if(instruction=="addr"){
-                string cmd = executePhase[i].substr(executePhase[i].find(":")+1);
+                string cmd = executes[i].substr(executes[i].find(":")+1);
                 int num = stoi(cmd.substr(0,cmd.find("from")));
                 int reg = stoi(cmd.substr(cmd.find("from")+4));
                 registers[reg]+=registers[num];
                 //AN UNSIGNED CANNOT NEVER EVER BE NEGATIVE!!
             }
+            if(debug){
+                debugstat();
+            }
+        
             registers[14]++; // pc 
         }
 
@@ -343,6 +404,6 @@ class ARM7CPU{
 };
 int main(int argc,char *argv[]){
     ARM7CPU* arm7 = new ARM7CPU;
-    arm7->setDebug(true);
+    arm7->setDebug(false);
     arm7->SerialCom();
 }
